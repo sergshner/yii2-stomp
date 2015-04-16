@@ -12,6 +12,8 @@ use yii\base\Exception;
 use yii\helpers\Inflector;
 use yii\helpers\Json;
 
+use sergshner\stomp\controllers\StompController;
+
 /**
  * Stomp wrapper.
  *
@@ -21,16 +23,22 @@ use yii\helpers\Json;
  */
 class Stomp extends Component
 {
+	/**
+	 * @var string
+	 */
+	public $connect_uri = 'tcp://localhost:61613';
+	
+	/**
+	 * 
+	 * @var array
+	 */
+	public $jobs = [];
+	
     /**
      * @var Stomp
      */
     protected static $stomp;
-
-    /**
-     * @var string
-     */
-    public $connect_uri = 'tcp://localhost:61613';
-
+    
     /**
      * @inheritdoc
      */
@@ -38,8 +46,12 @@ class Stomp extends Component
     {
         parent::init();
 
-        if (empty(self::$ampqConnection)) {
-            self::$stomp = new Stomp($this->connect_uri);
+        if (empty(self::$stomp)) {
+        	try {
+            	self::$stomp = new \Stomp($this->connect_uri);
+        	} catch (Exception $ex) {
+        		throw $ex;
+        	}
         }
     }
 
@@ -62,6 +74,6 @@ class Stomp extends Component
      */
     public function send($destination, $message)
     {        
-        $this->getStomp()->send($destination, $message);
+        $this->getStomp()->send($destination, Json::encode($message));
     }    
 }

@@ -12,6 +12,8 @@ use yii\base\Exception;
 use yii\helpers\Inflector;
 use yii\helpers\Json;
 
+use FuseSource\Stomp\Stomp as StompClient;
+
 use sergshner\stomp\controllers\StompController;
 
 /**
@@ -37,7 +39,7 @@ class Stomp extends Component
     /**
      * @var Stomp
      */
-    protected static $stomp;
+    protected $stomp;
     
     /**
      * @inheritdoc
@@ -46,9 +48,11 @@ class Stomp extends Component
     {
         parent::init();
 
-        if (empty(self::$stomp)) {
+        if (empty($this->stomp)) {
         	try {
-            	self::$stomp = new \Stomp($this->connect_uri);
+            	$this->stomp = new \Stomp($this->connect_uri);
+            	$this->stomp->setReadTimeout(0, 10000);
+            	//$this->stomp->connect();
         	} catch (Exception $ex) {
         		throw $ex;
         	}
@@ -62,7 +66,11 @@ class Stomp extends Component
      */
     public function getStomp()
     {
-        return self::$stomp;
+        return $this->stomp;
+    }
+    
+    public function setStomp($stomp) { 
+    	$this->stomp = $stomp; 
     }
    
     /**
@@ -74,6 +82,28 @@ class Stomp extends Component
      */
     public function send($destination, $message)
     {        
-        $this->getStomp()->send($destination, Json::encode($message));
+        $this->getStomp()->send($destination, Json::encode($message), array('persistent' => 'true'));
     }    
+    
+    public function reconnect() {    	
+    	unset($this->stomp);
+    	$this->stomp = new \Stomp($this->connect_uri);    	
+    	$this->stomp->setReadTimeout(0, 10000);
+    	//$this->stomp->connect();
+    }
+    
+    public function checkConnection() {   	
+    	try {
+    		/*
+    		$tmpStomp = new StompClient($this->connect_uri);
+    		$tmpStomp->setReadTimeout(0, 10000);
+    		$tmpStomp->connect();
+    		$tmpStomp->disconnect();
+    		unset($tmpStomp);
+    		*/
+    		return true;
+    	} catch (Exception $ex) {
+    		return false;
+    	}
+    } 
 }

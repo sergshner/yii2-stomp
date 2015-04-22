@@ -7,6 +7,7 @@ use yii\console\Controller;
 use yii\helpers\Console;
 use sergshner\stomp\classes\JobInterface;
 use yii\helpers\Json;
+use yii\di\Container;
 
 class StompController extends Controller
 {	
@@ -23,11 +24,15 @@ class StompController extends Controller
 
 	private $listeners = [];
 	
-	private $component; 
+	private $component;
+
+	private $ackStore = [];
+	
+	private $jobStore;
 
 	public function actionStart()
-	{
-		$this->runApplication();
+	{		
+		$this->runApplication();		
 	}
 
 	public function actionStop()
@@ -56,6 +61,8 @@ class StompController extends Controller
 
 	protected function runApplication()
 	{			
+		$this->jobStore = new Container();
+		
 		$this->component = Yii::$app->get($this->stompComponent);
 		
 		$this->component->getStomp()->setReadTimeout(0, 10000);
@@ -69,16 +76,24 @@ class StompController extends Controller
 	}
 	
 	public function resubscribe() 
-	{
+	{						
 		foreach ($this->listeners as $destination => $jobs) {
 			$this->component->getStomp()->unsubscribe($destination);
+			foreach ($jobs as $job) {
+				unset($job);
+			}
 		}
+		
+		$this->component->reconnect();
 		
 		$this->listeners = [];
 		
 		$this->component = Yii::$app->get($this->stompComponent);
-		foreach($this->component->jobs as $name => $job) {
-			$job = Yii::createObject($job);
+		foreach($this->component->jobs as $name => $job) {;
+			if (!$this->jobStore->has($name)) {
+				$this->jobStore->setSingleton($name, $job);
+			}
+			$job = &$this->jobStore->get($name);
 			if(!($job instanceof JobInterface)) {
 				throw new \yii\base\InvalidConfigException('Gearman job must be instance of JobInterface.');
 			}
@@ -117,26 +132,23 @@ class StompController extends Controller
     		}
     		
     		pcntl_signal_dispatch();
-    		    		    	    		
-    		if ($this->component->getStomp()->hasFrame()) {    			
-    			$frame = $this->component->getStomp()->readFrame();
-    			
-    			if (isset($this->listeners[$frame->headers['destination']])) {
-    				foreach ($this->listeners[$frame->headers['destination']] as &$job) {
-    					$ack = $job->ackMessage($frame->headers['destination'], Json::decode($frame->body));
-    					if ($ack) {
-    						$this->component->getStomp()->ack($frame);
-    						$job->onMessage($frame->headers['destination'], Json::decode($frame->body));
-    					} else {
-    						$this->component->getStomp()->unsubscribe($frame->headers['destination']);
-    						usleep(20000);
-    						$this->component->getStomp()->subscribe($frame->headers['destination']);
-    					}
+    				
+    		$frame = $this->component->getStomp()->readFrame();
+			 	
+    		if (!empty($frame) && isset($frame->headers['destination']) && isset($this->listeners[$frame->headers['destination']])) {
+    			foreach ($this->listeners[$frame->headers['destination']] as &$job) {
+    				$ack = $job->ackMessage($frame->headers['destination'], Json::decode($frame->body));
+    				if ($ack) {    						
+    					//$this->component->getStomp()->ack($frame, ['receipt' => $frame->headers['message-id']]);    						
+    					$this->component->getStomp()->ack($frame);
+    					$job->onMessage($frame->headers['destination'], Json::decode($frame->body));
+    				} else {
+    					$this->component->getStomp()->unsubscribe($frame->headers['destination']);
+    					usleep(20000);
+    					$this->component->getStomp()->subscribe($frame->headers['destination']);
     				}
-    			}    			
-    		}
-    		
-    		
+    			}
+    		}    			
 
     		foreach ($this->listeners as $destination => $jobs) {
     			foreach ($jobs as &$job) {

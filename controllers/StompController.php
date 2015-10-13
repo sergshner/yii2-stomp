@@ -151,8 +151,9 @@ class StompController extends Controller
 						$ack = $job->ackMessage($frame->headers['destination'], Json::decode($frame->body));
 					} catch (\Exception $ex) {
 						if (method_exists($job, 'onError')) {
-						$job->onError($ex, $frame);
+							$job->onError($ex, $frame);
 						}
+						$this->component->getStomp()->ack($frame);
 					}
 
     				if ($ack) {    						

@@ -63,7 +63,17 @@ class StompController extends Controller
 	{			
 		$this->jobStore = new Container();
 		
-		$this->component = Yii::$app->get($this->stompComponent);
+		$msg = '';
+		while (strpos($msg, 'Unable to connect') !== false || $msg == '') {
+			try {
+				$this->component = Yii::$app->get($this->stompComponent);
+				break;
+			} catch (\Exception $ex) {
+				$msg = $ex->getMessage();
+				print($msg . PHP_EOL);
+				sleep(1);									
+			}
+		}
 		
 		$this->component->getStomp()->setReadTimeout(0, 10000);
 		
@@ -132,12 +142,19 @@ class StompController extends Controller
     		}
     		
     		pcntl_signal_dispatch();
-    				
+		
     		$frame = $this->component->getStomp()->readFrame();
-			 	
     		if (!empty($frame) && isset($frame->headers['destination']) && isset($this->listeners[$frame->headers['destination']])) {
     			foreach ($this->listeners[$frame->headers['destination']] as &$job) {
-    				$ack = $job->ackMessage($frame->headers['destination'], Json::decode($frame->body));
+					try {
+						$ack = false;
+						$ack = $job->ackMessage($frame->headers['destination'], Json::decode($frame->body));
+					} catch (\Exception $ex) {
+						if (method_exists($job, 'onError')) {
+						$job->onError($ex, $frame);
+						}
+					}
+
     				if ($ack) {    						
     					//$this->component->getStomp()->ack($frame, ['receipt' => $frame->headers['message-id']]);    						
     					$this->component->getStomp()->ack($frame);
@@ -148,6 +165,19 @@ class StompController extends Controller
     					$this->component->getStomp()->subscribe($frame->headers['destination']);
     				}
     			}
+    		} else {
+    			$error = $this->component->getStomp()->error();
+    			while (strpos($error, 'Unable to connect') !== false) {
+    				try {
+    					$this->component->reconnect();
+    					$this->resubscribe();
+    					break;
+    				} catch (\Exception $ex) {
+    					$msg = $ex->getMessage();
+    					print($msg . PHP_EOL);
+    					sleep(1);
+    				}
+    			}
     		}    			
 
     		foreach ($this->listeners as $destination => $jobs) {
@@ -155,7 +185,7 @@ class StompController extends Controller
     				$job->onIdle();
     			}
     		}
-    		    		
+ 			
     		usleep(10000);
     	}
     }
